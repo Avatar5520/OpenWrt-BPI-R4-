@@ -63,14 +63,15 @@ jobs:
           with open("'"$SFP_FILE"'", "r") as f:
               content = f.read()
           target = "static const struct sfp_quirk sfp_quirks[] = {"
-          patch = target + "\n\t// ETU-LINK ES8524-3LCD03 2.5G SFP Whitelist\n\tSFP_QUIRK_M(\"ETU\", \"ES8524-3LCD03\", sfp_quirk_2500basex),\n"
+          patch = target + "\n\t{\n\t\t// ETU-LINK ES8524-3LCD03 2.5G SFP Whitelist\n\t\tSFP_QUIRK_M(\"ETU\", \"ES8524-3LCD03\", sfp_quirk_2500basex),\n\t},"
           assert target in content, "Target anchor not found in sfp.c!"
           content = content.replace(target, patch, 1)
           with open("'"$SFP_FILE"'", "w") as f:
               f.write(content)
           '
           echo "=== Verifying Injected Quirk in sfp.c ==="
-          grep -A 5 "sfp_quirks\[\]" "$SFP_FILE"
+          grep -A 7 "sfp_quirks\[\]" "$SFP_FILE"
+
 
       - name: Download Packages
         working-directory: openwrt
