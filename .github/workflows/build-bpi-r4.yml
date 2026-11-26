@@ -71,10 +71,10 @@ jobs:
           '
           echo "=== Verifying Injected Quirk in sfp.c ==="
           grep -A 5 "sfp_quirks\[\]" "$SFP_FILE"
-          echo "=== Compiling Kernel Immediately to Verify sfp.o ==="
+          echo "=== Building Toolchain & Verifying Kernel sfp.o ==="
+          make tools/install -j$(nproc)
+          make toolchain/install -j$(nproc)
           make target/linux/compile -j$(nproc) V=s
-
-
 
 
       - name: Download Packages
