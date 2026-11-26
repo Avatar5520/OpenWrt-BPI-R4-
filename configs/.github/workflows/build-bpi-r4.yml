@@ -1,0 +1,98 @@
+name: Build OpenWrt v25.12.6 for BPI-R4
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'OpenWrt Tag / Branch'
+        required: true
+        default: 'v25.12.6'
+
+env:
+  REPO_URL: https://github.com/openwrt/openwrt.git
+  REPO_BRANCH: ${{ github.event.inputs.tag || 'v25.12.6' }}
+  CONFIG_FILE: configs/bpi-r4.config
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout Custom Repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          df -h
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-multilib gettext \
+          genisoimage git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev \
+          libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev \
+          libreadline-dev libssl-dev libtool llvm lrzsz msmtp ninja-build p7zip p7zip-full patch pkgconf \
+          python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion \
+          swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev
+
+      - name: Clone OpenWrt v25.12.6 Source
+        run: |
+          git clone --depth 1 --branch $REPO_BRANCH $REPO_URL openwrt
+
+      - name: Update and Install Feeds
+        working-directory: openwrt
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Load BPI-R4 Configuration
+        run: |
+          cp -v $CONFIG_FILE openwrt/.config
+
+      - name: Prepare Kernel and Inject ETU SFP 2.5G Quirk
+        working-directory: openwrt
+        run: |
+          make defconfig
+          make target/linux/prepare V=s
+          SFP_FILE=$(find build_dir/target-* -name "sfp.c" | grep "drivers/net/phy/sfp.c" | head -n 1)
+          echo "Target sfp.c found at: $SFP_FILE"
+          python3 -c '
+          with open("'"$SFP_FILE"'", "r") as f:
+              content = f.read()
+          target = "SFP_QUIRK_F(\"HUAWEI\", \"MA5671A\", sfp_fixup_ignore_tx_fault),"
+          patch = target + "\n\n\t// ETU-LINK ES8524-3LCD03 2.5G SFP Whitelist\n\tSFP_QUIRK_M(\"ETU\", \"ES8524-3LCD03\", sfp_quirk_2500basex),"
+          assert target in content, "Target anchor not found in sfp.c!"
+          content = content.replace(target, patch, 1)
+          with open("'"$SFP_FILE"'", "w") as f:
+              f.write(content)
+          '
+          echo "=== Verifying Injected Quirk in sfp.c ==="
+          grep -A 5 "MA5671A" "$SFP_FILE"
+
+      - name: Download Packages
+        working-directory: openwrt
+        run: |
+          make download -j$(nproc)
+          find dl -size -1024c -exec ls -l {} \; -exec rm -f {} \;
+
+      - name: Compile OpenWrt Firmware
+        working-directory: openwrt
+        run: |
+          make -j$(nproc) || make -j1 V=s
+
+      - name: Organize Firmware Artifacts
+        run: |
+          mkdir -p artifacts
+          cp -v openwrt/bin/targets/mediatek/filogic/*bananapi_bpi-r4* artifacts/ || true
+          cp -v openwrt/bin/targets/mediatek/filogic/*.buildinfo artifacts/ || true
+          cp -v openwrt/bin/targets/mediatek/filogic/sha256sums artifacts/ || true
+
+      - name: Upload Firmware to GitHub Actions Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt-${{ env.REPO_BRANCH }}-BPI-R4
+          path: artifacts/*
+          retention-days: 14
