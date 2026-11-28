@@ -100,4 +100,11 @@ jobs:
         with:
           name: OpenWrt-${{ env.REPO_BRANCH }}-BPI-R4
           path: artifacts/*
-          retention-days: 14
+
+      - name: Upload All Kmods & Packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenWrt-${{ env.REPO_BRANCH }}-BPI-R4-Packages-Kmods
+          path: |
+            openwrt/bin/targets/mediatek/filogic/packages
+            openwrt/bin/packages
